@@ -1,5 +1,5 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:speech_recognization_example/utils/numbers_and_words_list.dart';
 import '../models/paragraph_data.dart';
 import '../services/speech_recognition_service.dart';
 import '../utils/extensions.dart';
@@ -30,7 +30,18 @@ class _PronunciationPracticeScreenState
   final ValueNotifier<String> _selectedPracticeMode = ValueNotifier('alphabets');
 
   final List<String> _languages = ['en-US', 'ja-JP', 'ko-KR', 'es-ES', 'fr-FR'];
+  final List<String> _koreanChars = NumbersAndWordsList().koreanNumbers;
+  final List<String> _japaneseChars = NumbersAndWordsList().japaneseKana;
   final List<String> _practiceModes = ['alphabets', 'paragraphs'];
+
+  // Maintain an index tracker for each language
+  final Map<String, int> _currentCharIndex = {
+    'en-US': 0,
+    'ko-KR': 0,
+    'ja-JP': 0,
+    'es-ES': 0,
+    'fr-FR': 0,
+  };
 
   final List<ParagraphData> _paragraphs = [
     ParagraphData(
@@ -50,8 +61,17 @@ class _PronunciationPracticeScreenState
   @override
   void initState() {
     super.initState();
+    _setupLanguageListener();
     _generateNewAlphabet();
     _setupSpeechRecognition();
+  }
+
+  void _setupLanguageListener() {
+    // Listen for language changes
+    _selectedLanguage.addListener(() {
+      _generateNewAlphabet(); // Generate a new alphabet for the new language
+      _spokenAlphabets.value = []; // Reset spoken alphabets when language changes
+    });
   }
 
   void _setupSpeechRecognition() {
@@ -84,7 +104,25 @@ class _PronunciationPracticeScreenState
   }
 
   void _generateNewAlphabet() {
-    _currentAlphabet.value = String.fromCharCode(Random().nextInt(26) + 65);
+    // Choose alphabet based on current language
+    final language = _selectedLanguage.value;
+
+    if (language == 'ko-KR' && _koreanChars.isNotEmpty) {
+      // Korean: pick next character sequentially
+      _currentAlphabet.value = _koreanChars[_currentCharIndex[language]!];
+      // Move to next index, wrap around if needed
+      _currentCharIndex[language] = (_currentCharIndex[language]! + 1) % _koreanChars.length;
+    } else if (language == 'ja-JP' && _japaneseChars.isNotEmpty) {
+      // Japanese: pick next character sequentially
+      _currentAlphabet.value = _japaneseChars[_currentCharIndex[language]!];
+      // Move to next index, wrap around if needed
+      _currentCharIndex[language] = (_currentCharIndex[language]! + 1) % _japaneseChars.length;
+    } else {
+      // English: use Latin alphabet A-Z sequentially
+      _currentAlphabet.value = String.fromCharCode(65 + _currentCharIndex['en-US']!);
+      // Move to next index, wrap around if needed (A-Z is 26 characters)
+      _currentCharIndex['en-US'] = (_currentCharIndex['en-US']! + 1) % 26;
+    }
   }
 
   Future<void> _startListening() async {

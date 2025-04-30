@@ -181,18 +181,24 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
     }
 
     private func stopRecognition() {
-        if isRecognizing {
-            audioEngine.inputNode.removeTap(onBus: 0)
+    if isRecognizing {
+        audioEngine.inputNode.removeTap(onBus: 0)
 
-            recognitionRequest?.endAudio()
-            recognitionTask = nil
-            recognitionRequest = nil
+        recognitionRequest?.endAudio()
+        recognitionTask?.cancel() 
+        recognitionTask = nil
+        recognitionRequest = nil
 
-            isRecognizing = false
+        if audioEngine.isRunning {
+            audioEngine.stop()
+            audioEngine.reset()
+        }
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                self.eventSink?("RECOGNITION_ENDED")
-            }
+        isRecognizing = false
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.eventSink?("RECOGNITION_ENDED")
         }
     }
+}
 }
