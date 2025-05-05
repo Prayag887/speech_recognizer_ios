@@ -160,16 +160,24 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
                 guard let self = self else { return }
 
                 if let result = result {
-                    var recognizedText = result.bestTranscription.formattedString
+                    let recognizedText = result.bestTranscription.formattedString
+
+                    // Check if the recognized text is empty
+                    if recognizedText.isEmpty {
+                        self.eventSink?("Please speak loudly and clearly in silent environment")
+                        return
+                    }
+
+                    var finalText = recognizedText
 
                     // Apply phonetic correction
                     if let targetText = targetText, let phoneticVariants = self.phoneticMappings[targetText] {
                         if phoneticVariants.contains(where: { recognizedText.caseInsensitiveCompare($0) == .orderedSame }) {
-                            recognizedText = targetText // Replace with target text
+                            finalText = targetText
                         }
                     }
 
-                    self.eventSink?(recognizedText)
+                    self.eventSink?(finalText)
                 }
 
                 if let error = error {
@@ -181,24 +189,24 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
     }
 
     private func stopRecognition() {
-    if isRecognizing {
-        audioEngine.inputNode.removeTap(onBus: 0)
+        if isRecognizing {
+            audioEngine.inputNode.removeTap(onBus: 0)
 
-        recognitionRequest?.endAudio()
-        recognitionTask?.cancel() 
-        recognitionTask = nil
-        recognitionRequest = nil
+            recognitionRequest?.endAudio()
+            recognitionTask?.cancel()
+            recognitionTask = nil
+            recognitionRequest = nil
 
-        if audioEngine.isRunning {
-            audioEngine.stop()
-            audioEngine.reset()
-        }
+            if audioEngine.isRunning {
+                audioEngine.stop()
+                audioEngine.reset()
+            }
 
-        isRecognizing = false
+            isRecognizing = false
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            self.eventSink?("RECOGNITION_ENDED")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                self.eventSink?("RECOGNITION_ENDED")
+            }
         }
     }
-}
 }
