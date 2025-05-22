@@ -10,7 +10,11 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
     private var audioEngine = AVAudioEngine()
     private var isRecognizing = false
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
-//    private var maxTime: Double = 2.0
+    private var manuallyStopped = false
+
+
+    // Store final result
+    private var finalResult: [String: Any]?
 
     private let phoneticMappings: [String: [String]] = [
         "A": ["Hey", "Hay"],
@@ -37,14 +41,14 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
 
     public static func register(with registrar: FlutterPluginRegistrar) {
         let eventChannel = FlutterEventChannel(
-            name: "com.example.speech_recognizer/recognizer", 
+            name: "com.example.speech_recognizer/recognizer",
             binaryMessenger: registrar.messenger()
         )
         let instance = SpeechRecognizationPlugin()
         eventChannel.setStreamHandler(instance)
 
         let methodChannel = FlutterMethodChannel(
-            name: "com.example.speech_recognizer/methods", 
+            name: "com.example.speech_recognizer/methods",
             binaryMessenger: registrar.messenger()
         )
         registrar.addMethodCallDelegate(instance, channel: methodChannel)
@@ -69,6 +73,20 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
         case "stopRecognition":
             stopRecognition()
             result(nil)
+        case "getFinalResults":
+            if let finalResult = self.finalResult {
+                result(finalResult)
+            } else {
+                let emptyResult: [String: Any] = [
+                    "text": "",
+                    "originalText": "",
+                    "isFinal": false,
+                    "confidence": 0.0,
+                    "timestamp": Date().timeIntervalSince1970,
+                    "available": false
+                ]
+                result(emptyResult)
+            }
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -89,6 +107,8 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
 
     private func startRecognition(languageCode: String, mode: String? = nil, targetText: String? = nil, result: @escaping FlutterResult) {
         isRecognizing = true
+        // Clear previous final result
+        finalResult = nil
 
         print("Language Mode: \(mode ?? "nil")")
         print("Target Text: \(targetText ?? "nil")")
@@ -162,28 +182,59 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
 
                 if let result = result {
                     let recognizedText = result.bestTranscription.formattedString
+
+                    // Check if the recognized text is empty
                     if recognizedText.isEmpty {
-                        // Add a 2-second delay before showing "Please speak loudly" message
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                            self.eventSink?("Please speak loudly and clearly in silent environment")
-                        }
+                        self.eventSink?("Please speak loudly and clearly in silent environment")
                         return
                     }
 
                     var finalText = recognizedText
 
+                    // Apply phonetic correction
                     if let targetText = targetText, let phoneticVariants = self.phoneticMappings[targetText] {
                         if phoneticVariants.contains(where: { recognizedText.caseInsensitiveCompare($0) == .orderedSame }) {
                             finalText = targetText
                         }
                     }
 
-                    // Return the result immediately if we have recognized text
-                    self.eventSink?(finalText)
+                    // Store the result data
+                    let resultData: [String: Any] = [
+                        "text": finalText,
+                        "originalText": recognizedText,
+                        "isFinal": result.isFinal,
+                        "confidence": result.bestTranscription.segments.first?.confidence ?? 0.0,
+                        "timestamp": Date().timeIntervalSince1970
+                    ]
+
+                    // Update final result if this is final
+                    if result.isFinal {
+                        self.finalResult = resultData
+
+                        // Send final data via stream
+                        self.eventSink?(resultData)
+
+                        // Gracefully stop audio input and cleanup
+                        self.audioEngine.stop()
+                        self.audioEngine.inputNode.removeTap(onBus: 0)
+                        self.recognitionRequest?.endAudio()
+                        self.recognitionTask?.cancel()
+                        self.recognitionTask = nil
+                        self.recognitionRequest = nil
+                        self.isRecognizing = false
+                    }
+
+
+                    // Send to stream
+                    self.eventSink?(resultData)
                 }
 
                 if let error = error {
-                    self.eventSink?("Error: \(error.localizedDescription)")
+                    let errorData: [String: Any] = [
+                        "error": error.localizedDescription,
+                        "timestamp": Date().timeIntervalSince1970
+                    ]
+                    self.eventSink?(errorData)
                     self.stopRecognition()
                 }
             }
@@ -192,12 +243,10 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
 
     private func stopRecognition() {
         if isRecognizing {
-            audioEngine.inputNode.removeTap(onBus: 0)
+            manuallyStopped = true
 
-            recognitionRequest?.endAudio()
-            recognitionTask?.cancel()
-            recognitionTask = nil
-            recognitionRequest = nil
+            audioEngine.inputNode.removeTap(onBus: 0)
+            recognitionRequest?.endAudio() // Stop audio, let the task finish naturally
 
             if audioEngine.isRunning {
                 audioEngine.stop()
@@ -205,10 +254,6 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
             }
 
             isRecognizing = false
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                self.eventSink?("RECOGNITION_ENDED")
-            }
         }
     }
 }

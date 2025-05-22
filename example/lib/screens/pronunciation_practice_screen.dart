@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:speech_recognization/speech_recognization.dart';
 import 'package:speech_recognization_example/utils/numbers_and_words_list.dart';
 import '../models/paragraph_data.dart';
 import '../services/speech_recognition_service.dart';
@@ -19,7 +20,7 @@ class PronunciationPracticeScreen extends StatefulWidget {
 
 class _PronunciationPracticeScreenState
     extends State<PronunciationPracticeScreen> {
-  final SpeechRecognitionService _speechService = SpeechRecognitionService();
+  final SpeechRecognizerIos _speechService = SpeechRecognizerIos();
 
   final ValueNotifier<String> _recognizedText = ValueNotifier('');
   final ValueNotifier<String> _selectedLanguage = ValueNotifier('en-US');
@@ -77,12 +78,41 @@ class _PronunciationPracticeScreenState
   void _setupSpeechRecognition() {
     _speechService.recognitionStream.listen((event) {
       if (event.toString() == "RECOGNITION_ENDED") return;
-      if (event.toString().startsWith("Error:")) {
+
+      // Handle structured data from iOS plugin
+      if (event is Map) {
+        if (event.containsKey('error')) {
+          _recognizedText.value = "Error: ${event['error']}";
+          return;
+        }
+
+        if (event.containsKey('status')) {
+          return;
+        }
+
+        final text = event['text']?.toString() ?? '';
+        final isFinal = event['isFinal'] == true;
+
+        if (_selectedPracticeMode.value == 'alphabets') {
+          // For alphabets, only process final results
+          if (isFinal) {
+            _recognizedText.value = text;
+            _processRecognizedSpeech();
+          }
+        } else {
+          _recognizedText.value = text;
+        }
+      } else {
+        // Handle legacy string responses
+        if (event.toString().startsWith("Error:")) {
+          _recognizedText.value = event.toString();
+          return;
+        }
         _recognizedText.value = event.toString();
-        return;
+        if (_selectedPracticeMode.value == 'alphabets') {
+          _processRecognizedSpeech();
+        }
       }
-      _recognizedText.value = event.toString();
-      _processRecognizedSpeech();
     }, onError: (error) {
       _recognizedText.value = "Error: ${error.toString()}";
       _isListening.value = false;
@@ -104,23 +134,16 @@ class _PronunciationPracticeScreenState
   }
 
   void _generateNewAlphabet() {
-    // Choose alphabet based on current language
     final language = _selectedLanguage.value;
 
     if (language == 'ko-KR' && _koreanChars.isNotEmpty) {
-      // Korean: pick next character sequentially
       _currentAlphabet.value = _koreanChars[_currentCharIndex[language]!];
-      // Move to next index, wrap around if needed
       _currentCharIndex[language] = (_currentCharIndex[language]! + 1) % _koreanChars.length;
     } else if (language == 'ja-JP' && _japaneseChars.isNotEmpty) {
-      // Japanese: pick next character sequentially
       _currentAlphabet.value = _japaneseChars[_currentCharIndex[language]!];
-      // Move to next index, wrap around if needed
       _currentCharIndex[language] = (_currentCharIndex[language]! + 1) % _japaneseChars.length;
     } else {
-      // English: use Latin alphabet A-Z sequentially
       _currentAlphabet.value = String.fromCharCode(65 + _currentCharIndex['en-US']!);
-      // Move to next index, wrap around if needed (A-Z is 26 characters)
       _currentCharIndex['en-US'] = (_currentCharIndex['en-US']! + 1) % 26;
     }
   }
@@ -156,6 +179,19 @@ class _PronunciationPracticeScreenState
     try {
       await _speechService.stopRecognition();
       _isListening.value = false;
+      if (_selectedPracticeMode.value == 'alphabets') {
+        try {
+          final finalResult = await _speechService.getFinalResults();
+          final finalText = finalResult['text']?.toString() ?? '';
+          if (finalText.isNotEmpty) {
+            _recognizedText.value = finalText;
+            _processRecognizedSpeech();
+          }
+        } catch (e) {
+          // Final result not available, continue with current recognized text
+          print("Final result not available: $e");
+        }
+      }
     } catch (e) {
       _recognizedText.value = "Error: ${e.toString()}";
       _isListening.value = false;
@@ -233,7 +269,7 @@ class _PronunciationPracticeScreenState
             MicrophoneButton(
               isListening: _isListening,
               onTapDown: _startListening,
-              onTapUp: (){},
+              onTapUp: _stopListening,
               onTapCancel: _stopListening,
             ),
             const SizedBox(height: 20),
