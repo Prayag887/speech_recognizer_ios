@@ -10,6 +10,7 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
     private var audioEngine = AVAudioEngine()
     private var isRecognizing = false
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
+//    private var maxTime: Double = 2.0
 
     private let phoneticMappings: [String: [String]] = [
         "A": ["Hey", "Hay"],
@@ -88,7 +89,7 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
 
     private func startRecognition(languageCode: String, mode: String? = nil, targetText: String? = nil, result: @escaping FlutterResult) {
         isRecognizing = true
-        
+
         print("Language Mode: \(mode ?? "nil")")
         print("Target Text: \(targetText ?? "nil")")
 
@@ -161,22 +162,23 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
 
                 if let result = result {
                     let recognizedText = result.bestTranscription.formattedString
-
-                    // Check if the recognized text is empty
                     if recognizedText.isEmpty {
-                        self.eventSink?("Please speak loudly and clearly in silent environment")
+                        // Add a 2-second delay before showing "Please speak loudly" message
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                            self.eventSink?("Please speak loudly and clearly in silent environment")
+                        }
                         return
                     }
 
                     var finalText = recognizedText
 
-                    // Apply phonetic correction
                     if let targetText = targetText, let phoneticVariants = self.phoneticMappings[targetText] {
                         if phoneticVariants.contains(where: { recognizedText.caseInsensitiveCompare($0) == .orderedSame }) {
                             finalText = targetText
                         }
                     }
 
+                    // Return the result immediately if we have recognized text
                     self.eventSink?(finalText)
                 }
 

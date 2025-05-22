@@ -233,7 +233,7 @@ class _PronunciationPracticeScreenState
             MicrophoneButton(
               isListening: _isListening,
               onTapDown: _startListening,
-              onTapUp: _stopListening,
+              onTapUp: (){},
               onTapCancel: _stopListening,
             ),
             const SizedBox(height: 20),
