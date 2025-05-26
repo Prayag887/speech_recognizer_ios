@@ -25,6 +25,7 @@ class SpeechRecognizerIos {
 
   Future<void> stopRecognition() async {
     try {
+      await Future.delayed(Duration(seconds: 2));
       await _methodChannel.invokeMethod('stopRecognition');
     } on PlatformException catch (e) {
       throw Exception("Error stopping recognition: ${e.message}");

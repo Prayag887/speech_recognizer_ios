@@ -1,8 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:speech_recognization/speech_recognization.dart';
 import 'package:speech_recognization_example/utils/numbers_and_words_list.dart';
 import '../models/paragraph_data.dart';
-import '../services/speech_recognition_service.dart';
 import '../utils/extensions.dart';
 import '../widgets/alphabet_practice.dart';
 import '../widgets/language_selector.dart';
@@ -47,7 +47,7 @@ class _PronunciationPracticeScreenState
   final List<ParagraphData> _paragraphs = [
     ParagraphData(
       text:
-      "The quick brown fox jumps over the lazy dog. She sells seashells by the seashore.",
+      "I visited Bandipur, a small hill town. The streets were clean with old houses and stone paths. I walked around and saw beautiful views of the mountains. People were friendly and smiling. I ate local food and watched the sunset from the hill. Bandipur was peaceful and quiet",
       translation: "",
       language: "en-US",
     ),
@@ -143,7 +143,7 @@ class _PronunciationPracticeScreenState
       _currentAlphabet.value = _japaneseChars[_currentCharIndex[language]!];
       _currentCharIndex[language] = (_currentCharIndex[language]! + 1) % _japaneseChars.length;
     } else {
-      _currentAlphabet.value = String.fromCharCode(65 + _currentCharIndex['en-US']!);
+      _currentAlphabet.value = "This is just for testing purpose";
       _currentCharIndex['en-US'] = (_currentCharIndex['en-US']! + 1) % 26;
     }
   }
@@ -189,7 +189,9 @@ class _PronunciationPracticeScreenState
           }
         } catch (e) {
           // Final result not available, continue with current recognized text
-          print("Final result not available: $e");
+          if (kDebugMode) {
+            print("Final result not available: $e");
+          }
         }
       }
     } catch (e) {

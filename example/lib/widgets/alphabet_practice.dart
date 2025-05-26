@@ -15,16 +15,16 @@ class AlphabetPractice extends StatelessWidget {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        const Text("Current Alphabet", style: TextStyle(fontSize: 18)),
+        const Text("Current Words", style: TextStyle(fontSize: 18)),
         ValueListenableBuilder<String>(
           valueListenable: currentAlphabet,
           builder: (context, char, _) => Text(char,
-              style: const TextStyle(fontSize: 50, fontWeight: FontWeight.bold)),
+              style: const TextStyle(fontSize: 30, fontWeight: FontWeight.bold)),
         ),
         const SizedBox(height: 20),
         ValueListenableBuilder<List<String>>(
           valueListenable: spokenAlphabets,
-          builder: (context, spoken, _) => Text("Completed: ${spoken.join(', ')}"),
+          builder: (context, spoken, _) => Text("Completed:\n${spoken.join('\n')}"),
         ),
       ],
     );
