@@ -160,7 +160,7 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
             let inputNode = self.audioEngine.inputNode
             inputNode.removeTap(onBus: 0)
 
-            let recordingFormat = inputNode.outputFormat(forBus: 0)
+            let recordingFormat = inputNode.inputFormat(forBus: 0)
             inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
                 recognitionRequest.append(buffer)
             }
