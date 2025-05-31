@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 
@@ -39,8 +40,11 @@ class SpeechRecognizerIos {
   Future<Map<String, dynamic>> getFinalResults() async {
     try {
       final result = await _methodChannel.invokeMethod('getFinalResults');
+      await Future.delayed(Duration(seconds: 2));
 
-      print("---------- : $result");
+      if (kDebugMode) {
+        print("Final result: $result");
+      }
       return Map<String, dynamic>.from(result);
     } on PlatformException catch (e) {
       throw Exception("Error getting final results: ${e.message}");

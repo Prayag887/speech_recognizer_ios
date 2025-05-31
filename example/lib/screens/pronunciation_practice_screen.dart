@@ -156,9 +156,11 @@ class _PronunciationPracticeScreenState
       String mode;
       if (_selectedPracticeMode.value == 'alphabets') {
         mode = 'alphabets';
-      } else if (_selectedPracticeMode.value == 'paragraphs') {
-        mode = 'targeted';
-      } else {
+      }
+      // else if (_selectedPracticeMode.value == 'paragraphs') {
+      //   mode = 'targeted';
+      // }
+      else {
         mode = 'continuous';
       }
 
