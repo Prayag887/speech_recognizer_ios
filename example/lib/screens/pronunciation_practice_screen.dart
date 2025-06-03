@@ -9,6 +9,7 @@ import '../widgets/language_selector.dart';
 import '../widgets/paragraph_practice.dart';
 import '../widgets/microphone_button.dart';
 import '../widgets/result_display.dart';
+import '../widgets/sentence_practice.dart';
 
 class PronunciationPracticeScreen extends StatefulWidget {
   const PronunciationPracticeScreen({super.key});
@@ -21,6 +22,7 @@ class PronunciationPracticeScreen extends StatefulWidget {
 class _PronunciationPracticeScreenState
     extends State<PronunciationPracticeScreen> {
   final SpeechRecognizerIos _speechService = SpeechRecognizerIos();
+  final _confidence = ValueNotifier("");
 
   final ValueNotifier<String> _recognizedText = ValueNotifier('');
   final ValueNotifier<String> _selectedLanguage = ValueNotifier('en-US');
@@ -33,7 +35,7 @@ class _PronunciationPracticeScreenState
   final List<String> _languages = ['en-US', 'ja-JP', 'ko-KR', 'es-ES', 'fr-FR'];
   final List<String> _koreanChars = NumbersAndWordsList().koreanNumbers;
   final List<String> _japaneseChars = NumbersAndWordsList().japaneseKana;
-  final List<String> _practiceModes = ['alphabets', 'paragraphs'];
+  final List<String> _practiceModes = ['alphabets', 'paragraphs', 'targeted'];
 
   // Maintain an index tracker for each language
   final Map<String, int> _currentCharIndex = {
@@ -91,6 +93,7 @@ class _PronunciationPracticeScreenState
         }
 
         final text = event['text']?.toString() ?? '';
+        // final text = event['confidence']?.toString() ?? '';
         final isFinal = event['isFinal'] == true;
 
         if (_selectedPracticeMode.value == 'alphabets') {
@@ -143,7 +146,7 @@ class _PronunciationPracticeScreenState
       _currentAlphabet.value = _japaneseChars[_currentCharIndex[language]!];
       _currentCharIndex[language] = (_currentCharIndex[language]! + 1) % _japaneseChars.length;
     } else {
-      _currentAlphabet.value = "This is just for testing purpose";
+      _currentAlphabet.value = "This is being done for testing purpose only.";
       _currentCharIndex['en-US'] = (_currentCharIndex['en-US']! + 1) % 26;
     }
   }
@@ -152,14 +155,15 @@ class _PronunciationPracticeScreenState
     try {
       _isListening.value = true;
       _recognizedText.value = "";
+      _confidence.value = "";
 
       String mode;
       if (_selectedPracticeMode.value == 'alphabets') {
         mode = 'alphabets';
       }
-      // else if (_selectedPracticeMode.value == 'paragraphs') {
-      //   mode = 'targeted';
-      // }
+      else if (_selectedPracticeMode.value == 'targeted') {
+        mode = 'targeted';
+      }
       else {
         mode = 'continuous';
       }
@@ -167,7 +171,7 @@ class _PronunciationPracticeScreenState
       await _speechService.startRecognition(
         language: _selectedLanguage.value,
         mode: mode,
-        targetText: _selectedPracticeMode.value == 'alphabets'
+        targetText: _selectedPracticeMode.value == 'alphabets'  || _selectedPracticeMode.value == 'targeted'
             ? _currentAlphabet.value
             : null,
       );
@@ -185,8 +189,10 @@ class _PronunciationPracticeScreenState
         try {
           final finalResult = await _speechService.getFinalResults();
           final finalText = finalResult['text']?.toString() ?? '';
+          final confidence = finalResult['confidence']?.toString() ?? '';
           if (finalText.isNotEmpty) {
             _recognizedText.value = finalText;
+            _confidence.value = confidence;
             _processRecognizedSpeech();
           }
         } catch (e) {
@@ -258,14 +264,24 @@ class _PronunciationPracticeScreenState
                 valueListenable: _selectedPracticeMode,
                 builder: (context, mode, _) {
                   if (mode == 'alphabets') {
+                    print("alphabets MODE");
                     return AlphabetPractice(
                       currentAlphabet: _currentAlphabet,
                       spokenAlphabets: _spokenAlphabets,
                     );
+                  } else if (mode == 'targeted') {
+                    print("TARGETED MODE:::::::::: ${_confidence.value}");
+                    return SentencePractice(
+                      currentSentence: _currentAlphabet,
+                      spokenSentence: _spokenAlphabets,
+                      confidence: _confidence
+                    );
+                  } else {
+                    print("Paragraph MODE");
+                    return ParagraphPractice(
+                      paragraph: _paragraphs[_selectedParagraphIndex.value],
+                    );
                   }
-                  return ParagraphPractice(
-                    paragraph: _paragraphs[_selectedParagraphIndex.value],
-                  );
                 },
               ),
             ),
