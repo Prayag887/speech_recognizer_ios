@@ -146,7 +146,8 @@ class _PronunciationPracticeScreenState
       _currentAlphabet.value = _japaneseChars[_currentCharIndex[language]!];
       _currentCharIndex[language] = (_currentCharIndex[language]! + 1) % _japaneseChars.length;
     } else {
-      _currentAlphabet.value = "This is being done for testing purpose only.";
+      // _currentAlphabet.value = "This is being done for testing purpose only.";
+      _currentAlphabet.value = "I visited Bandipur, a small hill town. The streets were clean with old houses and stone paths. I walked around and saw beautiful views of the mountains. People were friendly and smiling. I ate local food and watched the sunset from the hill. Bandipur was peaceful and quiet";
       _currentCharIndex['en-US'] = (_currentCharIndex['en-US']! + 1) % 26;
     }
   }

@@ -21,7 +21,7 @@ class SentencePractice extends StatelessWidget {
         ValueListenableBuilder<String>(
           valueListenable: currentSentence,
           builder: (context, char, _) => Text(char,
-              style: const TextStyle(fontSize: 30, fontWeight: FontWeight.bold)),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         ),
         const SizedBox(height: 20),
         ValueListenableBuilder<List<String>>(
