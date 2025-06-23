@@ -27,10 +27,10 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
         "D": ["Dee"],
         "E": ["Ee"],
         "F": ["Apps", "App", "Have"],
-        "G": ["Gee"],
+        "G": ["Gee", "J", "they"],
         "H": ["At", "Add"],
         "I": ["Eye", "Hi", "High"],
-        "J": ["They"],
+        "J": ["They", "G"],
         "M": ["Am"],
         "N": ["And", "An"],
         "O": ["Oh"],
@@ -41,6 +41,10 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
         "U": ["You"],
         "X": ["Ex"],
         "Y": ["Why"],
+        "coat": ["\"", "court", "quote"],
+        "court": ["\"", "coat", "quote"],
+        "wood": ["would"],
+        "would": ["wood"],	
     ]
 
     public static func register(with registrar: FlutterPluginRegistrar) {
