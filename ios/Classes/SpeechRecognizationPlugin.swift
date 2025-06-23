@@ -35,6 +35,7 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
         "N": ["And", "An"],
         "O": ["Oh"],
         "P": ["Pee", "Pea"],
+        "Q": ["Queue"],
         "R": ["Are"],
         "S": ["Yes", "As"],
         "T": ["Tea"],
