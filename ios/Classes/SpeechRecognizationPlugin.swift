@@ -37,7 +37,7 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
         "P": ["Pee", "Pea"],
         "Q": ["Queue"],
         "R": ["Are"],
-        "S": ["Yes", "As"],
+        "S": ["Yes", "As", "Ace"],
         "T": ["Tea"],
         "U": ["You"],
         "X": ["Ex"],
@@ -323,20 +323,29 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
     private func stopRecognition() {
         if isRecognizing {
             manuallyStopped = true
-            
+
             if finalResult == nil && latestResult != nil {
                 var finalData = latestResult!
                 finalData["isFinal"] = true
                 finalData["stoppedManually"] = true
                 finalResult = finalData
             }
-            
+
+            // Clean up audio engine first
             audioEngine.inputNode.removeTap(onBus: 0)
             recognitionRequest?.endAudio()
 
             if audioEngine.isRunning {
                 audioEngine.stop()
                 audioEngine.reset()
+            }
+
+            // Reset audio session category for playback
+            do {
+                try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+                try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            } catch {
+                print("Failed to reset audio session: \(error)")
             }
 
             isRecognizing = false
