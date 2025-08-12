@@ -19,8 +19,8 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
     private var targetText: String?
 
     // Enhanced phonetic threshold for matching
-    private let phoneticThreshold: Double = 0.65 // Slightly lower for better fast speech detection
-    private let contextualThreshold: Double = 0.55 // Even lower when using context
+    private let phoneticThreshold: Double = 0.70 // Slightly lower for better fast speech detection
+    private let contextualThreshold: Double = 0.65 // Even lower when using context
 
     private let phoneticMappings: [String: [String]] = [
         "A": ["Hey", "Hay"],
