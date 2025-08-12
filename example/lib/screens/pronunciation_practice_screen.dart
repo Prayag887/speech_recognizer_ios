@@ -94,14 +94,16 @@ class _PronunciationPracticeScreenState
 
         final text = event['text']?.toString() ?? '';
         // final text = event['confidence']?.toString() ?? '';
-        final isFinal = event['isFinal'] == true;
-
         if (_selectedPracticeMode.value == 'alphabets') {
           // For alphabets, only process final results
-          if (isFinal) {
+          final isFinal = event['isFinal'] == true;
+
+          if (isFinal && _recognizedText.value.isEmpty && text.isNotEmpty) {
+            print("Event: $text");
             _recognizedText.value = text;
             _processRecognizedSpeech();
           }
+
         } else {
           _recognizedText.value = text;
         }

@@ -34,7 +34,8 @@ class SpeechRecognizerIos {
   }
 
   Stream<dynamic> get recognitionStream {
-    return _eventChannel.receiveBroadcastStream();
+    print("Stream started");
+    return _eventChannel.receiveBroadcastStream().distinct();
   }
 
   Future<Map<String, dynamic>> getFinalResults() async {

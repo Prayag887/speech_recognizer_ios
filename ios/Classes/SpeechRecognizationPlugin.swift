@@ -3,30 +3,36 @@ import Flutter
 import Speech
 import UIKit
 
+@available(iOS 13, *)
 public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
-    
-    // Store final result and latest result
-    private var finalResult: [String: Any]?
-    private var latestResult: [String: Any]?
+
+    // MARK: - Public plugin properties
     private var eventSink: FlutterEventSink?
     private var speechRecognizer: SFSpeechRecognizer?
     private var recognitionTask: SFSpeechRecognitionTask?
-    private var audioEngine = AVAudioEngine()
-    private var isRecognizing = false
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
-    private var manuallyStopped = false
+    private var audioEngine = AVAudioEngine()
+
+    private(set) var isRecognizing = false
     private var hasStartedRecognition = false
+    private var manuallyStopped = false
 
-    // Phonetic threshold for matching (80%)
-    private let phoneticThreshold: Double = 0.7
+    // Results
+    private var latestResult: [String: Any]?
+    private var finalResult: [String: Any]?
 
+    // Phonetic/thresholds
+    private let phoneticThreshold: Double = 0.70
+    private var enableAutomaticGainControl = true
+
+    // Optional legacy phonetic mappings (you had these earlier)
     private let phoneticMappings: [String: [String]] = [
         "A": ["Hey", "Hay"],
         "B": ["Bee", "Be"],
         "C": ["Sea", "See"],
         "D": ["Dee"],
         "E": ["Ee"],
-        "F": ["Apps", "App", "Have"],
+        "F": ["Apps", "App", "Have", "Yeah", "Yup", "Yes"],
         "G": ["Gee"],
         "H": ["At", "Add"],
         "I": ["Eye", "Hi", "High"],
@@ -45,81 +51,54 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
         "coat": ["\"", "court", "quote"],
         "court": ["\"", "coat", "quote"],
         "wood": ["would"],
-        "would": ["wood"],	
+        "would": ["wood"]
     ]
 
+    // MARK: - Plugin registration
     public static func register(with registrar: FlutterPluginRegistrar) {
-        let eventChannel = FlutterEventChannel(
-            name: "com.example.speech_recognizer/recognizer",
-            binaryMessenger: registrar.messenger()
-        )
+        let eventChannel = FlutterEventChannel(name: "com.example.speech_recognizer/recognizer",
+                                               binaryMessenger: registrar.messenger())
         let instance = SpeechRecognizationPlugin()
         eventChannel.setStreamHandler(instance)
 
-        let methodChannel = FlutterMethodChannel(
-            name: "com.example.speech_recognizer/methods",
-            binaryMessenger: registrar.messenger()
-        )
+        let methodChannel = FlutterMethodChannel(name: "com.example.speech_recognizer/methods",
+                                                 binaryMessenger: registrar.messenger())
         registrar.addMethodCallDelegate(instance, channel: methodChannel)
     }
 
+    // MARK: - FlutterMethodCall handler
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         switch call.method {
         case "startRecognition":
             if isRecognizing {
-                result(FlutterError(code: "ALREADY_RECOGNIZING", message: "Recognition is already in progress", details: nil))
+                result(FlutterError(code: "ALREADY_RECOGNIZING", message: "Recognition in progress", details: nil))
                 return
             }
-
-            if let arguments = call.arguments as? [String: Any],
-               let languageCode = arguments["language"] as? String {
-                let mode = arguments["mode"] as? String
-                let targetText = arguments["targetText"] as? String
-                startRecognition(languageCode: languageCode, mode: mode, targetText: targetText, result: result)
-            } else {
-                result(FlutterError(code: "INVALID_ARGUMENTS", message: "No language code provided", details: nil))
+            guard let args = call.arguments as? [String: Any],
+                  let languageCode = args["language"] as? String else {
+                result(FlutterError(code: "INVALID_ARGUMENTS", message: "language param required", details: nil))
+                return
             }
+            let mode = args["mode"] as? String
+            let targetText = args["targetText"] as? String
+            startRecognition(languageCode: languageCode, mode: mode, targetText: targetText, result: result)
         case "stopRecognition":
             stopRecognition()
             result(nil)
         case "getFinalResults":
-            print("DEBUG - getFinalResults called")
-            print("DEBUG - finalResult is nil: \(self.finalResult == nil)")
-            print("DEBUG - latestResult is nil: \(self.latestResult == nil)")
-            print("DEBUG - isRecognizing: \(self.isRecognizing)")
-            print("DEBUG - hasStartedRecognition: \(self.hasStartedRecognition)")
-            
-            if let finalResult = self.finalResult {
-                print("DEBUG - Returning final result")
-                var resultWithStatus = finalResult
-                resultWithStatus["available"] = true
-                resultWithStatus["status"] = "completed"
-                result(resultWithStatus)
-            } else if let latestResult = self.latestResult {
-                print("DEBUG - Returning latest result")
-                var resultWithStatus = latestResult
-                resultWithStatus["available"] = true
-                resultWithStatus["status"] = isRecognizing ? "recognizing" : "partial"
-                result(resultWithStatus)
-            } else if isRecognizing {
-                print("DEBUG - Recognition in progress")
-                let progressResult: [String: Any] = [
-                    "text": "",
-                    "originalText": "",
-                    "isFinal": false,
-                    "confidence": 0.0,
-                    "phoneticAccuracy": 0.0,
-                    "levenshteinSimilarity": 0.0,
-                    "soundexSimilarity": 0.0,
-                    "matched": false,
-                    "timestamp": Date().timeIntervalSince1970,
-                    "available": false,
-                    "status": "recognizing"
-                ]
-                result(progressResult)
+            // Simplified getter for your app
+            if let final = finalResult {
+                var r = final
+                r["available"] = true
+                r["status"] = "completed"
+                result(r)
+            } else if let latest = latestResult {
+                var r = latest
+                r["available"] = true
+                r["status"] = isRecognizing ? "recognizing" : "partial"
+                result(r)
             } else {
-                print("DEBUG - Returning empty result")
-                let emptyResult: [String: Any] = [
+                result([
                     "text": "",
                     "originalText": "",
                     "isFinal": false,
@@ -131,224 +110,264 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
                     "timestamp": Date().timeIntervalSince1970,
                     "available": false,
                     "status": hasStartedRecognition ? "stopped" : "not_started"
-                ]
-                result(emptyResult)
+                ])
             }
         default:
             result(FlutterMethodNotImplemented)
         }
     }
 
+    // MARK: - EventChannel
     public func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
         self.eventSink = events
-        if let languageCode = arguments as? String {
-            startRecognition(languageCode: languageCode, result: { _ in })
-        }
         return nil
     }
 
     public func onCancel(withArguments arguments: Any?) -> FlutterError? {
         stopRecognition()
+        self.eventSink = nil
         return nil
     }
 
-    private func startRecognition(languageCode: String, mode: String? = nil, targetText: String? = nil, result: @escaping FlutterResult) {
+    // MARK: - Start recognition (full implementation)
+    private func startRecognition(languageCode: String,
+                                  mode: String? = nil,
+                                  targetText: String? = nil,
+                                  result: @escaping FlutterResult) {
         isRecognizing = true
         hasStartedRecognition = true
-        // Don't clear results immediately - only clear when we get new data
-        
-        print("Language Mode: \(mode ?? "nil")")
-        print("Target Text: \(targetText ?? "nil")")
+        manuallyStopped = false
 
-        SFSpeechRecognizer.requestAuthorization { [weak self] status in
-            guard let strongSelf = self else { return }
-
-            guard status == .authorized else {
-                strongSelf.eventSink?("Speech recognition not authorized")
-                result(FlutterError(code: "SPEECH_AUTHORIZATION", message: "Speech recognition not authorized", details: nil))
-                strongSelf.isRecognizing = false
+        SFSpeechRecognizer.requestAuthorization { [weak self] authStatus in
+            guard let self = self else { return }
+            guard authStatus == .authorized else {
+                self.eventSink?(["error": "Speech not authorized"])
+                result(FlutterError(code: "SPEECH_AUTHORIZATION", message: "Speech not authorized", details: nil))
+                self.isRecognizing = false
                 return
             }
 
             let locale = Locale(identifier: languageCode)
-            strongSelf.speechRecognizer = SFSpeechRecognizer(locale: locale)
+            self.speechRecognizer = SFSpeechRecognizer(locale: locale)
 
-            guard let recognizer = strongSelf.speechRecognizer, recognizer.isAvailable else {
-                strongSelf.eventSink?("Language not supported or recognizer not available")
-                result(FlutterError(code: "LANGUAGE_NOT_SUPPORTED", message: "Language not supported or recognizer not available", details: nil))
-                strongSelf.isRecognizing = false
+            guard let recognizer = self.speechRecognizer, recognizer.isAvailable else {
+                result(FlutterError(code: "LANG_NOT_AVAIL", message: "Language not available", details: nil))
+                self.isRecognizing = false
                 return
             }
 
+            // Configure audio session safely (use rawValue for voiceRecognition to avoid compile-time missing enum case)
             let audioSession = AVAudioSession.sharedInstance()
+            let desiredMode = AVAudioSession.Mode(rawValue: "voiceRecognition") // safe across SDKs
             do {
-                try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
+                try audioSession.setCategory(.record, mode: desiredMode, options: .duckOthers)
                 try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+                // low IO buffer helps responsiveness
+                try audioSession.setPreferredIOBufferDuration(0.005)
             } catch {
-                strongSelf.eventSink?("Audio session error: \(error.localizedDescription)")
-                result(FlutterError(code: "AUDIO_SESSION_ERROR", message: "Audio session error: \(error.localizedDescription)", details: nil))
-                strongSelf.isRecognizing = false
-                return
-            }
-
-            strongSelf.recognitionTask?.cancel()
-            strongSelf.recognitionTask = nil
-            strongSelf.recognitionRequest = nil
-            strongSelf.recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
-
-            guard let recognitionRequest = strongSelf.recognitionRequest else {
-                strongSelf.eventSink?("Failed to create recognition request")
-                result(FlutterError(code: "RECOGNITION_ERROR", message: "Failed to create recognition request", details: nil))
-                strongSelf.isRecognizing = false
-                return
-            }
-
-            let inputNode = strongSelf.audioEngine.inputNode
-            inputNode.removeTap(onBus: 0)
-
-            let recordingFormat = inputNode.inputFormat(forBus: 0)
-            inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
-                recognitionRequest.append(buffer)
-            }
-
-            if !strongSelf.audioEngine.isRunning {
-                strongSelf.audioEngine.prepare()
+                // fallback to measurement
                 do {
-                    try strongSelf.audioEngine.start()
+                    try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
+                    try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
                 } catch {
-                    strongSelf.eventSink?("Audio Engine Error: \(error.localizedDescription)")
-                    result(FlutterError(code: "AUDIO_ENGINE_ERROR", message: "Audio Engine Error: \(error.localizedDescription)", details: nil))
-                    strongSelf.isRecognizing = false
+                    result(FlutterError(code: "AUDIO_SESSION_ERROR", message: "Audio Session setup failed: \(error.localizedDescription)", details: nil))
+                    self.isRecognizing = false
                     return
                 }
             }
 
-            strongSelf.recognitionTask = recognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
-                guard let strongSelf = self else { return }
+            // Reset previous tasks / requests
+            self.recognitionTask?.cancel()
+            self.recognitionTask = nil
+            self.recognitionRequest = nil
 
-                if let result = result {
-                    let recognizedText = result.bestTranscription.formattedString
-                    let originalConfidence = result.bestTranscription.segments.first?.confidence ?? 0.0
+            // Setup request
+            let request = SFSpeechAudioBufferRecognitionRequest()
+            request.shouldReportPartialResults = true
+            request.requiresOnDeviceRecognition = false
+            if let tt = targetText {
+                request.contextualStrings = [tt] // CORRECT assignment
+            }
+            self.recognitionRequest = request
 
-                    if recognizedText.isEmpty {
-                        strongSelf.eventSink?("Please speak loudly and clearly in silent environment")
-                        return
-                    }
+            // Input node tap: append buffers (with optional AGC/normalization)
+            let inputNode = self.audioEngine.inputNode
+            inputNode.removeTap(onBus: 0)
+            let recordingFormat = inputNode.inputFormat(forBus: 0)
 
-                    var finalText = recognizedText
-                    var phoneticAccuracy = Double(originalConfidence)
-                    var levenshteinSimilarity = 0.0
-                    var soundexSimilarity = 0.0
-                    var matched = false
+            inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, when in
+                guard let self = self else { return }
+                if self.enableAutomaticGainControl {
+                    self.normalizeBufferInPlace(buffer: buffer)
+                }
+                request.append(buffer)
+            }
 
-                    // First check legacy phonetic mappings
-                    if let targetText = targetText, let phoneticVariants = strongSelf.phoneticMappings[targetText] {
-                        if phoneticVariants.contains(where: { recognizedText.caseInsensitiveCompare($0) == .orderedSame }) {
-                            finalText = targetText
-                            matched = true
-                            phoneticAccuracy = 1.0
-                            levenshteinSimilarity = 1.0
-                            soundexSimilarity = 1.0
+            // Start engine immediately (so lead-in audio isn't clipped)
+            self.audioEngine.prepare()
+            do {
+                try self.audioEngine.start()
+            } catch {
+                result(FlutterError(code: "AUDIO_ENGINE_ERROR", message: "Failed to start audio engine: \(error.localizedDescription)", details: nil))
+                self.isRecognizing = false
+                return
+            }
+
+            // Give the engine a tiny moment (200-300ms) to stabilize before creating the recognition task
+            let delay = DispatchTime.now() + 0.25
+            DispatchQueue.global().asyncAfter(deadline: delay) {
+                self.recognitionTask = recognizer.recognitionTask(with: request) { [weak self] recogResult, error in
+                    guard let self = self else { return }
+
+                    if let recogResult = recogResult {
+                        let recognizedText = recogResult.bestTranscription.formattedString
+                        let originalConfidence = recogResult.bestTranscription.segments.first?.confidence ?? 0.0
+
+                        // if empty / very low input -> warn
+                        if recognizedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            self.eventSink?(["warning": "Please speak clearly"])
+                            return
+                        }
+
+                        // Check legacy mapping first
+                        var finalText = recognizedText
+                        var phoneticAccuracy = Double(originalConfidence)
+                        var levenshteinSimilarity = 0.0
+                        var soundexSimilarity = 0.0
+                        var matched = false
+
+                        if let targetText = targetText,
+                           let phoneticVariants = self.phoneticMappings[targetText] {
+                            if phoneticVariants.contains(where: { recognizedText.caseInsensitiveCompare($0) == .orderedSame }) {
+                                finalText = targetText
+                                matched = true
+                                phoneticAccuracy = 1.0
+                                levenshteinSimilarity = 1.0
+                                soundexSimilarity = 1.0
+                            }
+                        }
+
+                        // If not matched via legacy mapping -> run the analyzer
+                        if !matched, let targetText = targetText {
+                            let analysis = PhoneticAnalyzer.analyzeMultipleWords(recognizedText: recognizedText,
+                                                                                 targetText: targetText,
+                                                                                 originalConfidence: Double(originalConfidence),
+                                                                                 threshold: self.phoneticThreshold)
+                            finalText = analysis.finalText
+                            phoneticAccuracy = analysis.phoneticAccuracy
+                            levenshteinSimilarity = analysis.levenshteinSimilarity
+                            soundexSimilarity = analysis.soundexSimilarity
+                            matched = analysis.matched
+                        }
+
+                        // finalConfidence: if matched, prefer phoneticAccuracy, else originalConfidence
+                        let finalConfidence = matched ? phoneticAccuracy : Double(originalConfidence)
+
+                        let resultData: [String: Any] = [
+                            "text": finalText,
+                            "originalText": recognizedText,
+                            "isFinal": recogResult.isFinal,
+                            "confidence": finalConfidence,
+                            "phoneticAccuracy": phoneticAccuracy,
+                            "levenshteinSimilarity": levenshteinSimilarity,
+                            "soundexSimilarity": soundexSimilarity,
+                            "matched": matched,
+                            "timestamp": Date().timeIntervalSince1970
+                        ]
+
+                        self.latestResult = resultData
+                        self.eventSink?(resultData)
+
+                        if recogResult.isFinal {
+                            self.finalResult = resultData
+                            // cleanup
+                            self.cleanupAudioAndTasks()
                         }
                     }
 
-                    // If no legacy match found and we have a target text, use advanced phonetic analysis
-                    if !matched, let targetText = targetText {
-                        let analysisResult = PhoneticAnalyzer.analyzeMultipleWords(
-                            recognizedText: recognizedText,
-                            targetText: targetText,
-                            originalConfidence: Double(originalConfidence),
-                            threshold: strongSelf.phoneticThreshold
-                        )
-                        print("target text:: $\(targetText), recognized text:: $\(recognizedText)")
-
-                        finalText = analysisResult.finalText
-                        phoneticAccuracy = analysisResult.phoneticAccuracy
-                        levenshteinSimilarity = analysisResult.levenshteinSimilarity
-                        soundexSimilarity = analysisResult.soundexSimilarity
-                        matched = analysisResult.matched
+                    if let err = error {
+                        self.eventSink?(["error": err.localizedDescription, "timestamp": Date().timeIntervalSince1970])
+                        self.cleanupAudioAndTasks()
                     }
-
-                    // Calculate final confidence based on phonetic accuracy
-                    let finalConfidence = matched ? phoneticAccuracy : Double(originalConfidence)
-
-                    let resultData: [String: Any] = [
-                        "text": finalText,
-                        "originalText": recognizedText,
-                        "isFinal": result.isFinal,
-                        "confidence": finalConfidence,
-                        "phoneticAccuracy": phoneticAccuracy,
-                        "levenshteinSimilarity": levenshteinSimilarity,
-                        "soundexSimilarity": soundexSimilarity,
-                        "matched": matched,
-                        "timestamp": Date().timeIntervalSince1970
-                    ]
-
-                    // Always store the latest result
-                    strongSelf.latestResult = resultData
-                    
-                    if result.isFinal {
-                        // Store as final result
-                        strongSelf.finalResult = resultData
-                        strongSelf.eventSink?(resultData)
-
-                        // Cleanup
-                        strongSelf.audioEngine.stop()
-                        strongSelf.audioEngine.inputNode.removeTap(onBus: 0)
-                        strongSelf.recognitionRequest?.endAudio()
-                        strongSelf.recognitionTask?.cancel()
-                        strongSelf.recognitionTask = nil
-                        strongSelf.recognitionRequest = nil
-                        strongSelf.isRecognizing = false
-                        
-                        print("DEBUG - Final result stored: \(resultData)")
-                    }
-
-                    strongSelf.eventSink?(resultData)
                 }
+            } // end delay
+        } // end requestAuthorization
+    }
 
-                if let error = error {
-                    guard let strongSelf = self else { return }
-                    let errorData: [String: Any] = [
-                        "error": error.localizedDescription,
-                        "timestamp": Date().timeIntervalSince1970
-                    ]
-                    strongSelf.eventSink?(errorData)
-                    strongSelf.stopRecognition()
-                }
-            }
+    // MARK: - Stop / Cleanup
+    private func stopRecognition() {
+        if !isRecognizing { return }
+        manuallyStopped = true
+
+        // If we have no finalResult but have latest -> promote it
+        if finalResult == nil, let latest = latestResult {
+            var promoted = latest
+            promoted["isFinal"] = true
+            promoted["stoppedManually"] = true
+            finalResult = promoted
+        }
+
+        cleanupAudioAndTasks()
+    }
+
+    private func cleanupAudioAndTasks() {
+        // remove tap safely
+        audioEngine.inputNode.removeTap(onBus: 0)
+        recognitionRequest?.endAudio()
+
+        if audioEngine.isRunning {
+            audioEngine.stop()
+            audioEngine.reset()
+        }
+
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        recognitionRequest = nil
+        isRecognizing = false
+
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        } catch {
+            // ignore errors here
         }
     }
 
-    private func stopRecognition() {
-        if isRecognizing {
-            manuallyStopped = true
+    // MARK: - Automatic gain control (in-place buffer normalization)
+    // Simple RMS-based normalization to boost low-volume speech (only for PCM Float32)
+    private func normalizeBufferInPlace(buffer: AVAudioPCMBuffer) {
+        guard let floatData = buffer.floatChannelData else { return }
+        let channelCount = Int(buffer.format.channelCount)
+        let frameLength = Int(buffer.frameLength)
+        guard frameLength > 0 else { return }
 
-            if finalResult == nil && latestResult != nil {
-                var finalData = latestResult!
-                finalData["isFinal"] = true
-                finalData["stoppedManually"] = true
-                finalResult = finalData
+        // compute RMS
+        var sumSquares: Float = 0.0
+        for ch in 0..<channelCount {
+            let channel = floatData[ch]
+            for i in 0..<frameLength {
+                let s = channel[i]
+                sumSquares += s * s
             }
+        }
+        let meanSquare = sumSquares / Float(frameLength * channelCount)
+        let rms = sqrt(meanSquare)
 
-            // Clean up audio engine first
-            audioEngine.inputNode.removeTap(onBus: 0)
-            recognitionRequest?.endAudio()
+        // target RMS and gain clamp
+        let targetRMS: Float = 0.03 // tweakable
+        if rms < 0.0005 {
+            // too quiet; no reliable signal -> skip (avoid extreme gain)
+            return
+        }
+        var gain = targetRMS / rms
+        if gain < 1.0 { return } // only amplify, don't reduce
+        if gain > 12.0 { gain = 12.0 } // clamp
 
-            if audioEngine.isRunning {
-                audioEngine.stop()
-                audioEngine.reset()
+        for ch in 0..<channelCount {
+            let channel = floatData[ch]
+            for i in 0..<frameLength {
+                channel[i] = channel[i] * gain
             }
-
-            // Reset audio session category for playback
-            do {
-                try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-                try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-            } catch {
-                print("Failed to reset audio session: \(error)")
-            }
-
-            isRecognizing = false
         }
     }
 }
