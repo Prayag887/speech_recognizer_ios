@@ -60,4 +60,9 @@ public class LevenshteinDistance {
         
         return (Double(maxLength - distance) / Double(maxLength)) * 100.0
     }
+    
+    // Instance apply method for parity with Kotlin
+       public func apply(_ s1: String, _ s2: String) -> Int {
+           return LevenshteinDistance.distance(s1, s2)
+       }
 }
