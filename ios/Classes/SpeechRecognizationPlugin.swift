@@ -153,10 +153,10 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
     }
 
     private func startRecognition(languageCode: String, mode: String? = nil, targetText: String? = nil, result: @escaping FlutterResult) {
+        guard !isRecognizing else { return } // prevent multiple simultaneous recognition
         isRecognizing = true
         hasStartedRecognition = true
-        // Don't clear results immediately - only clear when we get new data
-        
+
         print("Language Mode: \(mode ?? "nil")")
         print("Target Text: \(targetText ?? "nil")")
 
@@ -193,7 +193,6 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
 
             strongSelf.recognitionTask?.cancel()
             strongSelf.recognitionTask = nil
-            strongSelf.recognitionRequest = nil
             strongSelf.recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
 
             guard let recognitionRequest = strongSelf.recognitionRequest else {
@@ -203,32 +202,35 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
                 return
             }
 
+            // Use input node's hardware input format to avoid format mismatch
             let inputNode = strongSelf.audioEngine.inputNode
             inputNode.removeTap(onBus: 0)
 
-            let recordingFormat = inputNode.inputFormat(forBus: 0)
-            inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
+            // Pass `nil` format to let AVAudioEngine handle hardware format automatically
+            inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { buffer, _ in
                 recognitionRequest.append(buffer)
             }
 
-            if !strongSelf.audioEngine.isRunning {
-                strongSelf.audioEngine.prepare()
-                do {
+            // Prepare and start engine AFTER installing tap
+            strongSelf.audioEngine.prepare()
+            do {
+                if !strongSelf.audioEngine.isRunning {
                     try strongSelf.audioEngine.start()
-                } catch {
-                    strongSelf.eventSink?("Audio Engine Error: \(error.localizedDescription)")
-                    result(FlutterError(code: "AUDIO_ENGINE_ERROR", message: "Audio Engine Error: \(error.localizedDescription)", details: nil))
-                    strongSelf.isRecognizing = false
-                    return
                 }
+            } catch {
+                strongSelf.eventSink?("Audio Engine Error: \(error.localizedDescription)")
+                result(FlutterError(code: "AUDIO_ENGINE_ERROR", message: "Audio Engine Error: \(error.localizedDescription)", details: nil))
+                strongSelf.isRecognizing = false
+                return
             }
 
-            strongSelf.recognitionTask = recognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
+            // Start recognition task
+            strongSelf.recognitionTask = recognizer.recognitionTask(with: recognitionRequest) { [weak self] res, err in
                 guard let strongSelf = self else { return }
 
-                if let result = result {
-                    let recognizedText = result.bestTranscription.formattedString
-                    let originalConfidence = result.bestTranscription.segments.first?.confidence ?? 0.0
+                if let res = res {
+                    let recognizedText = res.bestTranscription.formattedString
+                    let originalConfidence = res.bestTranscription.segments.first?.confidence ?? 0.0
 
                     if recognizedText.isEmpty {
                         strongSelf.eventSink?("Please speak loudly and clearly in silent environment")
@@ -241,7 +243,6 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
                     var soundexSimilarity = 0.0
                     var matched = false
 
-                    // First check legacy phonetic mappings
                     if let targetText = targetText, let phoneticVariants = strongSelf.phoneticMappings[targetText] {
                         if phoneticVariants.contains(where: { recognizedText.caseInsensitiveCompare($0) == .orderedSame }) {
                             finalText = targetText
@@ -252,7 +253,6 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
                         }
                     }
 
-                    // If no legacy match found and we have a target text, use advanced phonetic analysis
                     if !matched, let targetText = targetText {
                         let analysisResult = PhoneticAnalyzer.analyzeMultipleWords(
                             recognizedText: recognizedText,
@@ -260,8 +260,6 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
                             originalConfidence: Double(originalConfidence),
                             threshold: strongSelf.phoneticThreshold
                         )
-                        print("target text:: $\(targetText), recognized text:: $\(recognizedText)")
-
                         finalText = analysisResult.finalText
                         phoneticAccuracy = analysisResult.phoneticAccuracy
                         levenshteinSimilarity = analysisResult.levenshteinSimilarity
@@ -269,13 +267,12 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
                         matched = analysisResult.matched
                     }
 
-                    // Calculate final confidence based on phonetic accuracy
                     let finalConfidence = matched ? phoneticAccuracy : Double(originalConfidence)
 
                     let resultData: [String: Any] = [
                         "text": finalText,
                         "originalText": recognizedText,
-                        "isFinal": result.isFinal,
+                        "isFinal": res.isFinal,
                         "confidence": finalConfidence,
                         "phoneticAccuracy": phoneticAccuracy,
                         "levenshteinSimilarity": levenshteinSimilarity,
@@ -284,15 +281,11 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
                         "timestamp": Date().timeIntervalSince1970
                     ]
 
-                    // Always store the latest result
                     strongSelf.latestResult = resultData
-                    
-                    if result.isFinal {
-                        // Store as final result
-                        strongSelf.finalResult = resultData
-                        strongSelf.eventSink?(resultData)
+                    strongSelf.eventSink?(resultData)
 
-                        // Cleanup
+                    if res.isFinal {
+                        strongSelf.finalResult = resultData
                         strongSelf.audioEngine.stop()
                         strongSelf.audioEngine.inputNode.removeTap(onBus: 0)
                         strongSelf.recognitionRequest?.endAudio()
@@ -300,17 +293,13 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
                         strongSelf.recognitionTask = nil
                         strongSelf.recognitionRequest = nil
                         strongSelf.isRecognizing = false
-                        
                         print("DEBUG - Final result stored: \(resultData)")
                     }
-
-                    strongSelf.eventSink?(resultData)
                 }
 
-                if let error = error {
-                    guard let strongSelf = self else { return }
+                if let err = err {
                     let errorData: [String: Any] = [
-                        "error": error.localizedDescription,
+                        "error": err.localizedDescription,
                         "timestamp": Date().timeIntervalSince1970
                     ]
                     strongSelf.eventSink?(errorData)
@@ -319,6 +308,7 @@ public class SpeechRecognizationPlugin: NSObject, FlutterPlugin, FlutterStreamHa
             }
         }
     }
+
 
     private func stopRecognition() {
         if isRecognizing {
